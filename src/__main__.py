@@ -30,14 +30,18 @@ def main():
         "--data-dir", default="./data",
         help="Local data directory (default: ./data)",
     )
+    parser.add_argument(
+        "--no-dedup", action="store_true",
+        help="Skip deduplication (include all versions of duplicate books)",
+    )
 
     args = parser.parse_args()
     data_dir = Path(args.data_dir)
 
     if args.full:
-        full_build(args.repo_id, data_dir)
+        full_build(args.repo_id, data_dir, dedup=not args.no_dedup)
     elif args.incremental:
-        incremental_build(args.repo_id, data_dir)
+        incremental_build(args.repo_id, data_dir, dedup=not args.no_dedup)
     else:
         parser.error("Specify --full or --incremental")
 

@@ -17,6 +17,7 @@ from src.download import (
 )
 from src.metadata import parse_rdf
 from src.clean import strip_gutenberg_headers
+from src.dedup import deduplicate_catalog
 from src.upload import upload_dataset
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def process_book(meta: dict, text: str) -> dict:
     }
 
 
-def full_build(repo_id: str, data_dir: Path) -> None:
+def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
     """Run the full build: download everything, process, upload."""
     raw_dir = data_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -73,6 +74,10 @@ def full_build(repo_id: str, data_dir: Path) -> None:
     catalog_path = download_catalog(raw_dir)
     catalog = parse_catalog_csv(catalog_path)
     logger.info(f"Catalog has {len(catalog)} entries")
+
+    if dedup:
+        catalog, removed = deduplicate_catalog(catalog)
+        logger.info(f"After dedup: {len(catalog)} entries ({len(removed)} removed)")
 
     logger.info("Downloading RDF metadata archive...")
     rdf_archive = download_bulk_rdf(raw_dir)
@@ -162,7 +167,7 @@ def full_build(repo_id: str, data_dir: Path) -> None:
         logger.warning(f"Errors saved to {errors_path}")
 
 
-def incremental_build(repo_id: str, data_dir: Path) -> None:
+def incremental_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
     """Run incremental update: diff catalog, process new books, append."""
     raw_dir = data_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -171,6 +176,10 @@ def incremental_build(repo_id: str, data_dir: Path) -> None:
     logger.info("Downloading fresh catalog...")
     new_catalog_path = download_catalog(raw_dir)
     new_catalog = parse_catalog_csv(new_catalog_path)
+
+    if dedup:
+        new_catalog, removed = deduplicate_catalog(new_catalog)
+        logger.info(f"After dedup: {len(new_catalog)} entries ({len(removed)} removed)")
 
     old_snapshot = snapshot_dir / "pg_catalog.csv.gz"
     if old_snapshot.exists():
