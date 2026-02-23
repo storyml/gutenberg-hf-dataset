@@ -69,9 +69,13 @@ def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
     raw_dir = data_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Download bulk files
-    logger.info("Downloading catalog...")
-    catalog_path = download_catalog(raw_dir)
+    # 1. Download bulk files (skip if already present)
+    catalog_path = raw_dir / "pg_catalog.csv.gz"
+    if not catalog_path.exists():
+        logger.info("Downloading catalog...")
+        catalog_path = download_catalog(raw_dir)
+    else:
+        logger.info("Catalog already downloaded, reusing")
     catalog = parse_catalog_csv(catalog_path)
     logger.info(f"Catalog has {len(catalog)} entries")
 
@@ -79,29 +83,43 @@ def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
         catalog, removed = deduplicate_catalog(catalog)
         logger.info(f"After dedup: {len(catalog)} entries ({len(removed)} removed)")
 
-    logger.info("Downloading RDF metadata archive...")
-    rdf_archive = download_bulk_rdf(raw_dir)
+    rdf_archive = raw_dir / "rdf-files.tar.bz2"
+    if not rdf_archive.exists():
+        logger.info("Downloading RDF metadata archive...")
+        rdf_archive = download_bulk_rdf(raw_dir)
+    else:
+        logger.info("RDF archive already downloaded, reusing")
 
-    logger.info("Downloading text archive...")
-    txt_archive = download_bulk_texts(raw_dir)
+    txt_archive = raw_dir / "txt-files.tar.zip"
+    if not txt_archive.exists():
+        logger.info("Downloading text archive...")
+        txt_archive = download_bulk_texts(raw_dir)
+    else:
+        logger.info("Text archive already downloaded, reusing")
 
-    # 2. Extract RDF files
-    logger.info("Extracting RDF files...")
+    # 2. Extract RDF files (skip if already extracted)
     rdf_dir = raw_dir / "rdf"
     rdf_dir.mkdir(exist_ok=True)
-    with tarfile.open(rdf_archive, "r:bz2") as tar:
-        tar.extractall(path=rdf_dir, filter="data")
+    if not (rdf_dir / "cache" / "epub").exists():
+        logger.info("Extracting RDF files...")
+        with tarfile.open(rdf_archive, "r:bz2") as tar:
+            tar.extractall(path=rdf_dir, filter="data")
+    else:
+        logger.info("RDF files already extracted, reusing")
 
-    # 3. Extract text files (zip contains a tar: txt-files.tar.zip -> txt-files.tar -> files)
-    logger.info("Extracting text files...")
+    # 3. Extract text files (skip if already extracted)
     txt_dir = raw_dir / "txt"
     txt_dir.mkdir(exist_ok=True)
     inner_tar = txt_dir / "txt-files.tar"
-    if not inner_tar.exists():
-        with zipfile.ZipFile(txt_archive, "r") as zf:
-            zf.extractall(path=txt_dir)
-    with tarfile.open(inner_tar, "r") as tar:
-        tar.extractall(path=txt_dir, filter="data")
+    if not (txt_dir / "cache" / "epub").exists():
+        logger.info("Extracting text files...")
+        if not inner_tar.exists():
+            with zipfile.ZipFile(txt_archive, "r") as zf:
+                zf.extractall(path=txt_dir)
+        with tarfile.open(inner_tar, "r") as tar:
+            tar.extractall(path=txt_dir, filter="data")
+    else:
+        logger.info("Text files already extracted, reusing")
 
     # 4. Process all books — stream to JSONL files to avoid OOM
     jsonl_dir = data_dir / "jsonl"
