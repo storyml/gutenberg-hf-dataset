@@ -18,7 +18,7 @@ from src.download import (
 from src.metadata import parse_rdf
 from src.clean import strip_gutenberg_headers
 from src.dedup import deduplicate_catalog
-from src.upload import upload_dataset
+from src.upload import upload_dataset, upload_from_jsonl
 
 logger = logging.getLogger(__name__)
 
@@ -103,61 +103,72 @@ def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
     with tarfile.open(inner_tar, "r") as tar:
         tar.extractall(path=txt_dir, filter="data")
 
-    # 4. Process all books
-    all_book_rows = []
-    all_chapter_rows = []
-    all_paragraph_rows = []
+    # 4. Process all books — stream to JSONL files to avoid OOM
+    jsonl_dir = data_dir / "jsonl"
+    jsonl_dir.mkdir(exist_ok=True)
+    books_path = jsonl_dir / "books.jsonl"
+    chapters_path = jsonl_dir / "chapters.jsonl"
+    paragraphs_path = jsonl_dir / "paragraphs.jsonl"
+
     errors = []
     total = len(catalog)
+    book_count = 0
+    chapter_count = 0
+    paragraph_count = 0
 
-    for i, entry in enumerate(catalog):
-        book_id = entry["id"]
-        if not book_id or not book_id.isdigit():
-            continue
+    with open(books_path, "w") as bf, \
+         open(chapters_path, "w") as cf, \
+         open(paragraphs_path, "w") as pf:
 
-        if (i + 1) % 1000 == 0:
-            logger.info(f"Progress: {i + 1}/{total} ({len(all_book_rows)} processed, {len(errors)} errors)")
-
-        try:
-            rdf_path = rdf_dir / "cache" / "epub" / book_id / f"pg{book_id}.rdf"
-            if not rdf_path.exists():
-                logger.warning(f"No RDF for book {book_id}, skipping")
+        for i, entry in enumerate(catalog):
+            book_id = entry["id"]
+            if not book_id or not book_id.isdigit():
                 continue
 
-            meta = parse_rdf(rdf_path)
+            if (i + 1) % 1000 == 0:
+                logger.info(f"Progress: {i + 1}/{total} ({book_count} processed, {len(errors)} errors)")
 
-            # Find text file (structure: cache/epub/{id}/pg{id}.txt)
-            txt_path = txt_dir / "cache" / "epub" / book_id / f"pg{book_id}.txt"
-            if not txt_path.exists():
-                logger.warning(f"No text for book {book_id}, skipping")
-                continue
+            try:
+                rdf_path = rdf_dir / "cache" / "epub" / book_id / f"pg{book_id}.rdf"
+                if not rdf_path.exists():
+                    continue
 
-            raw_bytes = txt_path.read_bytes()
-            clean_text = strip_gutenberg_headers(raw_bytes)
+                meta = parse_rdf(rdf_path)
 
-            if not clean_text.strip():
-                logger.warning(f"Empty text for book {book_id}, skipping")
-                continue
+                txt_path = txt_dir / "cache" / "epub" / book_id / f"pg{book_id}.txt"
+                if not txt_path.exists():
+                    continue
 
-            result = process_book(meta, clean_text)
-            all_book_rows.append(result["book_row"])
-            all_chapter_rows.extend(result["chapter_rows"])
-            all_paragraph_rows.extend(result["paragraph_rows"])
+                raw_bytes = txt_path.read_bytes()
+                clean_text = strip_gutenberg_headers(raw_bytes)
 
-        except Exception as e:
-            errors.append((book_id, str(e)))
-            logger.error(f"Error processing book {book_id}: {e}")
+                if not clean_text.strip():
+                    continue
+
+                result = process_book(meta, clean_text)
+                bf.write(json.dumps(result["book_row"]) + "\n")
+                book_count += 1
+                for ch in result["chapter_rows"]:
+                    cf.write(json.dumps(ch) + "\n")
+                    chapter_count += 1
+                for p in result["paragraph_rows"]:
+                    pf.write(json.dumps(p) + "\n")
+                    paragraph_count += 1
+
+            except Exception as e:
+                errors.append((book_id, str(e)))
+                logger.error(f"Error processing book {book_id}: {e}")
 
     logger.info(
-        f"Processed {len(all_book_rows)} books, "
-        f"{len(all_chapter_rows)} chapters, "
-        f"{len(all_paragraph_rows)} paragraphs. "
+        f"Processed {book_count} books, "
+        f"{chapter_count} chapters, "
+        f"{paragraph_count} paragraphs. "
         f"{len(errors)} errors."
     )
 
-    # 5. Upload
+    # 5. Upload from JSONL files
     logger.info(f"Uploading to {repo_id}...")
-    upload_dataset(repo_id, all_book_rows, all_chapter_rows, all_paragraph_rows)
+    upload_from_jsonl(repo_id, books_path, chapters_path, paragraphs_path)
     logger.info("Upload complete!")
 
     # 6. Save catalog snapshot
