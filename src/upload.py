@@ -9,7 +9,13 @@ from datasets import Dataset
 
 logger = logging.getLogger(__name__)
 
-SHARD_SIZE = 500_000  # rows per parquet shard
+# Shard sizes per config — books/chapters have full text so need smaller shards
+SHARD_SIZES = {
+    "books": 5_000,        # ~5k books per shard (~1.8GB)
+    "chapters": 50_000,    # ~50k chapters per shard
+    "paragraphs": 500_000, # ~500k paragraphs per shard
+}
+DEFAULT_SHARD_SIZE = 500_000
 
 
 def _rows_to_columnar(rows: list[dict]) -> dict[str, list]:
@@ -47,11 +53,12 @@ def _jsonl_to_parquet_shards(jsonl_path: Path, output_dir: Path, config_name: st
     shard_paths = []
     batch = []
     shard_idx = 0
+    shard_size = SHARD_SIZES.get(config_name, DEFAULT_SHARD_SIZE)
 
     with open(jsonl_path, "r") as f:
         for line in f:
             batch.append(json.loads(line))
-            if len(batch) >= SHARD_SIZE:
+            if len(batch) >= shard_size:
                 shard_path = _write_shard(batch, output_dir, config_name, shard_idx)
                 shard_paths.append(shard_path)
                 logger.info(f"  Wrote shard {shard_idx} ({len(batch)} rows)")
@@ -70,7 +77,6 @@ def _write_shard(rows: list[dict], output_dir: Path, config_name: str, shard_idx
     """Write a batch of rows to a Parquet file."""
     columnar = _rows_to_columnar(rows)
     table = pa.table(columnar)
-    total_shards = "PLACEHOLDER"  # will be renamed later
     shard_path = output_dir / f"train-{shard_idx:05d}.parquet"
     pq.write_table(table, shard_path)
     return shard_path
