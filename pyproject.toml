@@ -29,6 +29,7 @@ packages = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["data", ".git", ".venv", "__pycache__"]
 markers = [
     "integration: tests that require network access",
 ]
