@@ -104,6 +104,8 @@ def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
         logger.info("Extracting RDF files...")
         with tarfile.open(rdf_archive, "r:bz2") as tar:
             tar.extractall(path=rdf_dir, filter="data")
+        rdf_archive.unlink()
+        logger.info("Deleted RDF archive to free disk space")
     else:
         logger.info("RDF files already extracted, reusing")
 
@@ -116,8 +118,12 @@ def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
         if not inner_tar.exists():
             with zipfile.ZipFile(txt_archive, "r") as zf:
                 zf.extractall(path=txt_dir)
+        txt_archive.unlink()
+        logger.info("Deleted text zip archive to free disk space")
         with tarfile.open(inner_tar, "r") as tar:
             tar.extractall(path=txt_dir, filter="data")
+        inner_tar.unlink()
+        logger.info("Deleted inner tar to free disk space")
     else:
         logger.info("Text files already extracted, reusing")
 
@@ -183,6 +189,11 @@ def full_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
         f"{paragraph_count} paragraphs. "
         f"{len(errors)} errors."
     )
+
+    # Free disk space — extracted texts/RDF are no longer needed
+    shutil.rmtree(rdf_dir, ignore_errors=True)
+    shutil.rmtree(txt_dir, ignore_errors=True)
+    logger.info("Deleted extracted files to free disk space")
 
     # 5. Upload from JSONL files
     logger.info(f"Uploading to {repo_id}...")
