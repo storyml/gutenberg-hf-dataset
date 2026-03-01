@@ -218,7 +218,6 @@ def incremental_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
     if old_snapshot.exists():
         old_catalog = parse_catalog_csv(old_snapshot)
     else:
-        logger.warning("No previous snapshot found, treating all as new")
         old_catalog = []
 
     new_ids = diff_catalogs(old_catalog, new_catalog)
@@ -226,6 +225,16 @@ def incremental_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
 
     if not new_ids:
         logger.info("No new books, nothing to do")
+        return
+
+    # If there's no previous snapshot, this is effectively a first run.
+    # Use bulk download instead of fetching books one at a time.
+    if not old_catalog:
+        logger.info(
+            f"No previous snapshot — running full build via bulk download "
+            f"instead of fetching {len(new_ids)} books individually"
+        )
+        full_build(repo_id, data_dir, dedup=dedup)
         return
 
     all_book_rows = []
