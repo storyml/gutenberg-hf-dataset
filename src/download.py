@@ -1,5 +1,6 @@
 import csv
 import gzip
+import logging
 import time
 from pathlib import Path
 
@@ -8,6 +9,8 @@ import requests
 PG_BASE = "https://www.gutenberg.org"
 PG_FEEDS = f"{PG_BASE}/cache/epub/feeds"
 RATE_LIMIT_SECONDS = 2
+
+logger = logging.getLogger(__name__)
 
 
 def download_catalog(dest_dir: Path) -> Path:
@@ -63,22 +66,32 @@ def download_book_rdf(book_id: str, dest_dir: Path) -> Path:
 def download_bulk_texts(dest_dir: Path) -> Path:
     url = f"{PG_FEEDS}/txt-files.tar.zip"
     dest = dest_dir / "txt-files.tar.zip"
-    print(f"Downloading {url} (this will take a while)...")
+    logger.info(f"Downloading {url} (this will take a while)...")
     resp = requests.get(url, timeout=3600, stream=True)
     resp.raise_for_status()
+    downloaded = 0
     with open(dest, "wb") as f:
         for chunk in resp.iter_content(chunk_size=8192 * 1024):
             f.write(chunk)
+            downloaded += len(chunk)
+            if downloaded % (100 * 1024 * 1024) < len(chunk):
+                logger.info(f"  Downloaded {downloaded / 1024 / 1024:.0f} MB...")
+    logger.info(f"  Download complete: {downloaded / 1024 / 1024:.0f} MB")
     return dest
 
 
 def download_bulk_rdf(dest_dir: Path) -> Path:
     url = f"{PG_FEEDS}/rdf-files.tar.bz2"
     dest = dest_dir / "rdf-files.tar.bz2"
-    print(f"Downloading {url}...")
+    logger.info(f"Downloading {url}...")
     resp = requests.get(url, timeout=600, stream=True)
     resp.raise_for_status()
+    downloaded = 0
     with open(dest, "wb") as f:
         for chunk in resp.iter_content(chunk_size=8192 * 1024):
             f.write(chunk)
+            downloaded += len(chunk)
+            if downloaded % (50 * 1024 * 1024) < len(chunk):
+                logger.info(f"  Downloaded {downloaded / 1024 / 1024:.0f} MB...")
+    logger.info(f"  Download complete: {downloaded / 1024 / 1024:.0f} MB")
     return dest

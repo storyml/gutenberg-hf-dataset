@@ -232,7 +232,25 @@ def incremental_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
     if old_snapshot.exists():
         old_catalog = parse_catalog_csv(old_snapshot)
     else:
-        old_catalog = []
+        # Try to recover snapshot from HF repo before falling back to full build
+        logger.info("No local snapshot found, checking HF repo for existing catalog...")
+        try:
+            from huggingface_hub import hf_hub_download
+            snapshot_dir.mkdir(parents=True, exist_ok=True)
+            hf_hub_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                filename="pg_catalog.csv.gz",
+                local_dir=str(snapshot_dir),
+            )
+            if old_snapshot.exists():
+                logger.info("Recovered snapshot from HF repo")
+                old_catalog = parse_catalog_csv(old_snapshot)
+            else:
+                old_catalog = []
+        except Exception as e:
+            logger.info(f"No snapshot available from HF repo: {e}")
+            old_catalog = []
 
     new_ids = diff_catalogs(old_catalog, new_catalog)
     logger.info(f"Found {len(new_ids)} new books")
@@ -286,4 +304,18 @@ def incremental_build(repo_id: str, data_dir: Path, dedup: bool = True) -> None:
 
     snapshot_dir.mkdir(exist_ok=True)
     shutil.copy2(new_catalog_path, old_snapshot)
-    logger.info("Snapshot updated")
+    logger.info("Local snapshot updated")
+
+    # Also upload snapshot to HF repo as a backup recovery point
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi()
+        api.upload_file(
+            repo_id=repo_id,
+            repo_type="dataset",
+            path_or_fileobj=str(old_snapshot),
+            path_in_repo="pg_catalog.csv.gz",
+        )
+        logger.info("Snapshot uploaded to HF repo")
+    except Exception as e:
+        logger.warning(f"Failed to upload snapshot to HF repo: {e}")

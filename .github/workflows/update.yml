@@ -28,8 +28,10 @@ jobs:
         run: pip install -e .
 
       - name: Run incremental update
+        timeout-minutes: 120
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PYTHONUNBUFFERED: "1"
         run: python -m src --incremental --repo-id ${{ vars.HF_REPO_ID }} --data-dir ./data
 
       - name: Commit updated catalog snapshot
